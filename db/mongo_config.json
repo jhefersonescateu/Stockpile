@@ -1,0 +1,6 @@
+{
+  "mongo_uri": "mongodb+srv://jhefersonescateu_db_user:990246774@cluster0.gfvpqxm.mongodb.net/?appName=Cluster0",
+  "db_name": "inventario",
+  "collection_name": "inventario",
+  "sync_with_sqlite": true
+}
