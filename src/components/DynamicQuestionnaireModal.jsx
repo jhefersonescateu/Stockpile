@@ -257,10 +257,10 @@ export default function DynamicQuestionnaireModal({ isOpen, onClose, onSave, ite
         }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#38bdf8', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span>{itemToEdit ? '✏️ Editar Registro en SQLite' : '➕ Registrar Nuevo Objeto en Inventario'}</span>
+              <span>{itemToEdit ? '✏️ Editar Registro' : '➕ Registrar Nuevo Objeto en Inventario'}</span>
             </h2>
             <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
-              Base de Datos: <span style={{ color: '#4ade80', fontWeight: '600' }}>db/inventario.db</span>
+              Base de Datos: <span style={{ color: '#4ade80', fontWeight: '600' }}>Turso DB</span>
             </p>
           </div>
           <button 
@@ -959,7 +959,7 @@ export default function DynamicQuestionnaireModal({ isOpen, onClose, onSave, ite
                   gap: '0.5rem'
                 }}
               >
-                <span>💾 Guardar en SQLite</span>
+                <span>💾 Guardar en Turso</span>
               </button>
             </div>
           </div>

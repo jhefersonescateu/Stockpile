@@ -39,6 +39,10 @@ const defaultLocations = [
 export default function App() {
   const [items, setItems] = useState(initialSchoolInventory);
   const [locations, setLocations] = useState(defaultLocations);
+  const [accessCode, setAccessCode] = useState('');
+  const [accessError, setAccessError] = useState('');
+  const [isAccessLoading, setIsAccessLoading] = useState(false);
+  const [isAccessGranted, setIsAccessGranted] = useState(false);
 
   // Navigation Tabs state ('inventory' | 'qr')
   const [activeMainTab, setActiveMainTab] = useState('inventory');
@@ -74,31 +78,67 @@ export default function App() {
   };
 
   const [isDbConnected, setIsDbConnected] = useState(false);
-  const [dbSourceName, setDbSourceName] = useState('SQLite Local');
+  const [dbSourceName, setDbSourceName] = useState('Turso DB');
 
-  // Cargar inventario desde el servidor Backend (MongoDB Cloud Atlas / SQLite)
+  const verifyAccessCode = async (codeValue) => {
+    const normalized = (codeValue || '').trim();
+    if (!normalized) {
+      setAccessError('Ingresa el código de acceso.');
+      return false;
+    }
+
+    setIsAccessLoading(true);
+    setAccessError('');
+
+    try {
+      const res = await fetch('/api/access/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: normalized })
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setAccessError(json.message || 'Código incorrecto.');
+        return false;
+      }
+
+      localStorage.setItem('stockpile_access_code', normalized.toUpperCase());
+      setIsAccessGranted(true);
+      return true;
+    } catch (error) {
+      setAccessError('No se pudo verificar el código de acceso.');
+      return false;
+    } finally {
+      setIsAccessLoading(false);
+    }
+  };
+
+  const handleAccessSubmit = async (event) => {
+    event.preventDefault();
+    await verifyAccessCode(accessCode);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('stockpile_access_code');
+    setAccessCode('');
+    setAccessError('');
+    setIsAccessGranted(false);
+  };
+
+  // Load inventory from the Python API backed by Turso.
   const loadFromBackend = async () => {
     try {
-      let res;
-      try {
-        res = await fetch('/api/inventory');
-      } catch {
-        try {
-          res = await fetch('http://localhost:5001/api/inventory');
-        } catch {
-          res = await fetch('http://localhost:3001/api/inventory');
-        }
-      }
+      const res = await fetch('/api/inventory');
       const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setItems(json.data);
-        setIsDbConnected(true);
-        if (json.source) {
-          setDbSourceName(json.source);
-        }
+      if (!res.ok || !json.success || !Array.isArray(json.data)) {
+        throw new Error(json.message || 'No se pudo cargar el inventario de Turso.');
       }
-    } catch {
-      console.warn('Servidor Backend no detectado, usando memoria local fallback');
+      setItems(json.data);
+      setIsDbConnected(true);
+      setDbSourceName(json.source || 'Turso DB');
+    } catch (error) {
+      console.error('No se pudo cargar el inventario de Turso:', error);
       setIsDbConnected(false);
     }
   };
@@ -106,23 +146,31 @@ export default function App() {
   // Cargar ubicaciones guardadas en la base de datos
   const loadLocations = async () => {
     try {
-      let res;
-      try {
-        res = await fetch('/api/locations');
-      } catch {
-        res = await fetch('http://localhost:5001/api/locations');
-      }
+      const res = await fetch('/api/locations');
       const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'No se pudieron cargar las ubicaciones.');
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         setLocations(['Todas las Ubicaciones', ...json.data.filter(l => l !== 'Todas las Ubicaciones')]);
       }
-    } catch {}
+    } catch (error) {
+      console.error('No se pudieron cargar las ubicaciones de Turso:', error);
+    }
   };
 
   useEffect(() => {
+    const savedCode = localStorage.getItem('stockpile_access_code');
+    if (savedCode) {
+      verifyAccessCode(savedCode);
+      return;
+    }
+    setIsAccessGranted(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isAccessGranted) return;
     loadFromBackend();
     loadLocations();
-  }, []);
+  }, [isAccessGranted]);
 
   // Abrir modal para NUEVO ítem con cuestionario dinámico
   const handleOpenAddModal = () => {
@@ -136,69 +184,35 @@ export default function App() {
     setIsItemModalOpen(true);
   };
 
-  // Guardar ítem (Crear o Actualizar en MongoDB Atlas / SQLite)
+  // Save inventory changes through the Turso-backed API.
   const handleSaveDynamicQuestionnaire = async (itemData) => {
+    let saveSucceeded = false;
     try {
-      if (itemData.id) {
-        // Actualizar bien patrimonial
-        let res;
-        try {
-          res = await fetch(`/api/inventory/${itemData.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(itemData)
-          });
-        } catch {
-          res = await fetch(`http://localhost:5001/api/inventory/${itemData.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(itemData)
-          });
-        }
-        const json = await res.json();
-        if (json.success) {
-          setItems(prev => prev.map(it => it.id === itemData.id ? json.data : it));
-          showToast(`✅ Bien Patrimonial "${itemData.name}" actualizado en ${json.source || 'base de datos'}`);
-        } else {
-          setItems(prev => prev.map(it => it.id === itemData.id ? itemData : it));
-        }
+      const isUpdating = Boolean(itemData.id);
+      const res = await fetch(isUpdating ? `/api/inventory/${itemData.id}` : '/api/inventory', {
+        method: isUpdating ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(itemData)
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || json.error || 'No se pudo guardar en Turso.');
+      }
+
+      if (isUpdating) {
+        setItems(prev => prev.map(item => item.id === itemData.id ? json.data : item));
       } else {
-        // Crear nuevo bien patrimonial
-        let res;
-        try {
-          res = await fetch('/api/inventory', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(itemData)
-          });
-        } catch {
-          res = await fetch('http://localhost:5001/api/inventory', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(itemData)
-          });
-        }
-        const json = await res.json();
-        if (json.success) {
-          setItems(prev => [json.data, ...prev]);
-          showToast(`📦 Bien Patrimonial "${itemData.name}" registrado exitosamente en ${json.source || 'MongoDB Atlas'}`);
-        } else {
-          const newItem = { ...itemData, id: itemData.code || `QUI-${Date.now()}` };
-          setItems(prev => [newItem, ...prev]);
-        }
+        setItems(prev => [json.data, ...prev]);
       }
       setIsDbConnected(true);
-    } catch (err) {
-      console.error('Error al conectar con backend:', err);
-      if (itemData.id) {
-        setItems(prev => prev.map(it => it.id === itemData.id ? itemData : it));
-      } else {
-        const newItem = { ...itemData, id: itemData.code || `QUI-${Date.now()}` };
-        setItems(prev => [newItem, ...prev]);
-      }
-      showToast(`📦 Bien "${itemData.name}" guardado localmente.`);
+      saveSucceeded = true;
+      showToast(`Bien patrimonial "${itemData.name}" guardado en Turso.`);
+    } catch (error) {
+      setIsDbConnected(false);
+      console.error('Error al guardar en Turso:', error);
+      showToast(error.message || 'No se pudo guardar en Turso.');
     }
-    setIsItemModalOpen(false);
+    if (saveSucceeded) setIsItemModalOpen(false);
   };
 
   // Duplicar Ítem
@@ -213,18 +227,18 @@ export default function App() {
     await handleSaveDynamicQuestionnaire(duplicated);
   };
 
-  // Eliminar Ítem de MongoDB / SQLite
+  // Delete inventory through the Turso-backed API.
   const handleDeleteItem = async (id, name) => {
     if (window.confirm(`¿Está seguro de dar de baja / eliminar el bien patrimonial "${name}" de la base de datos?`)) {
       try {
-        await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
-      } catch {
-        try {
-          await fetch(`http://localhost:5001/api/inventory/${id}`, { method: 'DELETE' });
-        } catch {}
+        const res = await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.message || json.error || 'No se pudo eliminar en Turso.');
+        setItems(prev => prev.filter(item => item.id !== id));
+        showToast(`Bien patrimonial "${name}" eliminado de Turso.`);
+      } catch (error) {
+        showToast(error.message || 'No se pudo eliminar en Turso.');
       }
-      setItems(prev => prev.filter(item => item.id !== id));
-      showToast(`🗑️ Bien patrimonial "${name}" eliminado de la base de datos.`);
     }
   };
 
@@ -245,12 +259,17 @@ export default function App() {
     }
 
     try {
-      await fetch('/api/locations', {
+      const response = await fetch('/api/locations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: formatted })
       });
-    } catch {}
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || result.error || 'No se pudo guardar en Turso.');
+    } catch (error) {
+      showToast(error.message || 'No se pudo guardar la ubicación en Turso.');
+      return;
+    }
 
     setLocations(prev => [...prev, formatted]);
     setSelectedLocation(formatted);
@@ -262,10 +281,15 @@ export default function App() {
   const handleDeleteLocation = async (locName) => {
     if (window.confirm(`¿Está seguro de eliminar la ubicación "${locName}" de la base de datos?`)) {
       try {
-        await fetch(`/api/locations/${encodeURIComponent(locName)}`, {
+        const response = await fetch(`/api/locations/${encodeURIComponent(locName)}`, {
           method: 'DELETE'
         });
-      } catch {}
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || result.error || 'No se pudo eliminar en Turso.');
+      } catch (error) {
+        showToast(error.message || 'No se pudo eliminar la ubicación en Turso.');
+        return;
+      }
 
       setLocations(prev => prev.filter(l => l !== locName));
       if (selectedLocation === locName) {
@@ -387,6 +411,96 @@ export default function App() {
     showToast('📊 Reporte de inventario exportado en formato Excel / CSV.');
   };
 
+  if (!isAccessGranted) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0f766e 100%)',
+        padding: '24px'
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '440px',
+          background: 'rgba(15, 23, 42, 0.82)',
+          border: '1px solid rgba(148, 163, 184, 0.4)',
+          borderRadius: '18px',
+          boxShadow: '0 20px 50px rgba(15, 23, 42, 0.45)',
+          padding: '28px 24px'
+        }}>
+          <div style={{ textAlign: 'center', marginBottom: '18px' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>🔐</div>
+            <h2 style={{ color: '#f8fafc', margin: 0, fontSize: '1.7rem' }}>Acceso al inventario</h2>
+            <p style={{ color: '#cbd5e1', margin: '12px 0 0', fontSize: '0.9rem' }}>
+              Ingresa el código autorizado para acceder al sistema patrimonial.
+            </p>
+          </div>
+
+          <form onSubmit={handleAccessSubmit}>
+            <label style={{ display: 'block', color: '#e2e8f0', marginBottom: '8px', fontWeight: 600 }}>
+              Código de acceso
+            </label>
+            <input
+              type="password"
+              value={accessCode}
+              onChange={(e) => setAccessCode(e.target.value)}
+              placeholder="Ej. STOCKPILE2026"
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                border: '1px solid #475569',
+                background: '#0f172a',
+                color: '#f8fafc',
+                fontSize: '1rem',
+                marginBottom: '12px'
+              }}
+            />
+
+            {accessError && (
+              <div style={{
+                color: '#fca5a5',
+                background: 'rgba(127, 29, 29, 0.35)',
+                border: '1px solid rgba(248, 113, 113, 0.5)',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                marginBottom: '12px',
+                fontSize: '0.85rem'
+              }}>
+                {accessError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isAccessLoading}
+              style={{
+                width: '100%',
+                background: 'linear-gradient(135deg, #2563eb, #0ea5e9)',
+                color: '#fff',
+                border: 'none',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                cursor: isAccessLoading ? 'not-allowed' : 'pointer',
+                fontWeight: 700,
+                fontSize: '0.95rem'
+              }}
+            >
+              {isAccessLoading ? 'Verificando...' : 'Entrar al sistema'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: '18px', color: '#cbd5e1', fontSize: '0.78rem', textAlign: 'center' }}>
+            Base de datos: {dbSourceName}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="inventory-app">
       {/* Toast alert */}
@@ -408,9 +522,9 @@ export default function App() {
                 Sistema de Control Patrimonial Escolar
               </h1>
               <span style={{
-                backgroundColor: isDbConnected ? (dbSourceName.includes('MongoDB') ? '#022c22' : '#064e3b') : '#451a03',
-                color: isDbConnected ? (dbSourceName.includes('MongoDB') ? '#34d399' : '#a7f3d0') : '#fbbf24',
-                border: `1px solid ${isDbConnected ? (dbSourceName.includes('MongoDB') ? '#059669' : '#059669') : '#d97706'}`,
+                backgroundColor: isDbConnected ? '#064e3b' : '#451a03',
+                color: isDbConnected ? '#a7f3d0' : '#fbbf24',
+                border: `1px solid ${isDbConnected ? '#059669' : '#d97706'}`,
                 padding: '0.25rem 0.75rem',
                 borderRadius: '20px',
                 fontSize: '0.78rem',
@@ -421,7 +535,7 @@ export default function App() {
                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
               }}>
                 <span className="status-pulse-dot" style={{ backgroundColor: isDbConnected ? '#10b981' : '#f59e0b' }}></span>
-                <span>{isDbConnected ? (dbSourceName.includes('MongoDB') ? `🍃 MongoDB Cloud Atlas (Sincronizado)` : `🐍 ${dbSourceName}`) : '🟡 Modo Local'}</span>
+                <span>{isDbConnected ? `🐍 ${dbSourceName}` : 'Turso desconectado'}</span>
               </span>
             </div>
             <p style={{ color: '#475569', fontSize: '0.88rem', fontWeight: 500, marginTop: '2px' }}>
@@ -431,6 +545,9 @@ export default function App() {
         </div>
 
         <div className="header-actions">
+          <button className="btn btn-secondary" onClick={handleLogout}>
+            <span>🔒</span> Cerrar sesión
+          </button>
           <button className="btn btn-primary" onClick={handleOpenAddModal}>
             <span>+</span> Registrar Bien Patrimonial
           </button>
@@ -742,7 +859,7 @@ export default function App() {
         </>
       )}
 
-      {/* Modal con Cuestionario Dinámico por Categoría en SQLite */}
+      {/* Modal with category-specific inventory fields. */}
       <DynamicQuestionnaireModal
         isOpen={isItemModalOpen}
         onClose={() => setIsItemModalOpen(false)}
