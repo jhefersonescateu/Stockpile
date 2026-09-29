@@ -61,6 +61,8 @@ export default function App() {
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [newLocationInput, setNewLocationInput] = useState('');
 
+  const [isActaModalOpen, setIsActaModalOpen] = useState(false);
+
   // Toast notification state
   const [toastMessage, setToastMessage] = useState('');
 
@@ -74,14 +76,18 @@ export default function App() {
   const [isDbConnected, setIsDbConnected] = useState(false);
   const [dbSourceName, setDbSourceName] = useState('SQLite Local');
 
-  // Cargar inventario desde el servidor Python (server.py) con MongoDB / SQLite
+  // Cargar inventario desde el servidor Backend (MongoDB Cloud Atlas / SQLite)
   const loadFromBackend = async () => {
     try {
       let res;
       try {
-        res = await fetch('http://localhost:5001/api/inventory');
-      } catch (errPy) {
-        res = await fetch('http://localhost:3001/api/inventory');
+        res = await fetch('/api/inventory');
+      } catch {
+        try {
+          res = await fetch('http://localhost:5001/api/inventory');
+        } catch {
+          res = await fetch('http://localhost:3001/api/inventory');
+        }
       }
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
@@ -91,7 +97,7 @@ export default function App() {
           setDbSourceName(json.source);
         }
       }
-    } catch (err) {
+    } catch {
       console.warn('Servidor Backend no detectado, usando memoria local fallback');
       setIsDbConnected(false);
     }
@@ -100,12 +106,17 @@ export default function App() {
   // Cargar ubicaciones guardadas en la base de datos
   const loadLocations = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/locations');
+      let res;
+      try {
+        res = await fetch('/api/locations');
+      } catch {
+        res = await fetch('http://localhost:5001/api/locations');
+      }
       const json = await res.json();
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         setLocations(['Todas las Ubicaciones', ...json.data.filter(l => l !== 'Todas las Ubicaciones')]);
       }
-    } catch (err) { }
+    } catch {}
   };
 
   useEffect(() => {
@@ -125,21 +136,20 @@ export default function App() {
     setIsItemModalOpen(true);
   };
 
-  // Guardar ítem (Crear o Actualizar en SQLite)
+  // Guardar ítem (Crear o Actualizar en MongoDB Atlas / SQLite)
   const handleSaveDynamicQuestionnaire = async (itemData) => {
-    const backendBase = 'http://localhost:5001/api/inventory';
     try {
       if (itemData.id) {
-        // Actualizar en SQLite via API Python
+        // Actualizar bien patrimonial
         let res;
         try {
-          res = await fetch(`${backendBase}/${itemData.id}`, {
+          res = await fetch(`/api/inventory/${itemData.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itemData)
           });
-        } catch (e1) {
-          res = await fetch(`http://localhost:3001/api/inventory/${itemData.id}`, {
+        } catch {
+          res = await fetch(`http://localhost:5001/api/inventory/${itemData.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itemData)
@@ -148,21 +158,21 @@ export default function App() {
         const json = await res.json();
         if (json.success) {
           setItems(prev => prev.map(it => it.id === itemData.id ? json.data : it));
-          showToast(`✅ Objeto "${itemData.name}" actualizado en SQLite db/inventario.db`);
+          showToast(`✅ Bien Patrimonial "${itemData.name}" actualizado en ${json.source || 'base de datos'}`);
         } else {
           setItems(prev => prev.map(it => it.id === itemData.id ? itemData : it));
         }
       } else {
-        // Crear nuevo en SQLite via API Python
+        // Crear nuevo bien patrimonial
         let res;
         try {
-          res = await fetch(backendBase, {
+          res = await fetch('/api/inventory', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itemData)
           });
-        } catch (e2) {
-          res = await fetch('http://localhost:3001/api/inventory', {
+        } catch {
+          res = await fetch('http://localhost:5001/api/inventory', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itemData)
@@ -171,7 +181,7 @@ export default function App() {
         const json = await res.json();
         if (json.success) {
           setItems(prev => [json.data, ...prev]);
-          showToast(`📦 Objeto "${itemData.name}" registrado en SQLite db/inventario.db`);
+          showToast(`📦 Bien Patrimonial "${itemData.name}" registrado exitosamente en ${json.source || 'MongoDB Atlas'}`);
         } else {
           const newItem = { ...itemData, id: itemData.code || `QUI-${Date.now()}` };
           setItems(prev => [newItem, ...prev]);
@@ -186,7 +196,7 @@ export default function App() {
         const newItem = { ...itemData, id: itemData.code || `QUI-${Date.now()}` };
         setItems(prev => [newItem, ...prev]);
       }
-      showToast(`📦 Objeto "${itemData.name}" guardado localmente.`);
+      showToast(`📦 Bien "${itemData.name}" guardado localmente.`);
     }
     setIsItemModalOpen(false);
   };
@@ -203,18 +213,18 @@ export default function App() {
     await handleSaveDynamicQuestionnaire(duplicated);
   };
 
-  // Eliminar Ítem de SQLite
+  // Eliminar Ítem de MongoDB / SQLite
   const handleDeleteItem = async (id, name) => {
-    if (window.confirm(`¿Está seguro de eliminar el bien "${name}" de la base de datos db/inventario.db?`)) {
+    if (window.confirm(`¿Está seguro de dar de baja / eliminar el bien patrimonial "${name}" de la base de datos?`)) {
       try {
-        await fetch(`http://localhost:5000/api/inventory/${id}`, { method: 'DELETE' });
-      } catch (e) {
+        await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
+      } catch {
         try {
-          await fetch(`http://localhost:3001/api/inventory/${id}`, { method: 'DELETE' });
-        } catch (e2) { }
+          await fetch(`http://localhost:5001/api/inventory/${id}`, { method: 'DELETE' });
+        } catch {}
       }
       setItems(prev => prev.filter(item => item.id !== id));
-      showToast(`🗑️ Bien "${name}" eliminado de la base de datos SQLite.`);
+      showToast(`🗑️ Bien patrimonial "${name}" eliminado de la base de datos.`);
     }
   };
 
@@ -223,7 +233,6 @@ export default function App() {
     setTagItem(item);
     setIsTagModalOpen(true);
   };
-
 
   // Add new classroom location (Guarda en la base de datos)
   const handleAddLocation = async (e) => {
@@ -236,12 +245,12 @@ export default function App() {
     }
 
     try {
-      await fetch('http://localhost:5001/api/locations', {
+      await fetch('/api/locations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: formatted })
       });
-    } catch (err) { }
+    } catch {}
 
     setLocations(prev => [...prev, formatted]);
     setSelectedLocation(formatted);
@@ -253,10 +262,10 @@ export default function App() {
   const handleDeleteLocation = async (locName) => {
     if (window.confirm(`¿Está seguro de eliminar la ubicación "${locName}" de la base de datos?`)) {
       try {
-        await fetch(`http://localhost:5001/api/locations/${encodeURIComponent(locName)}`, {
+        await fetch(`/api/locations/${encodeURIComponent(locName)}`, {
           method: 'DELETE'
         });
-      } catch (err) { }
+      } catch {}
 
       setLocations(prev => prev.filter(l => l !== locName));
       if (selectedLocation === locName) {
@@ -390,40 +399,49 @@ export default function App() {
       {/* Header Bar matching executive reference styling */}
       <header className="header-card">
         <div className="header-brand">
-          <div className="header-logo-badge">
-            🏫
+          <div className="header-logo-badge" style={{ background: 'linear-gradient(135deg, #1e3a8a, #0f172a)' }}>
+            🏛️
           </div>
           <div className="header-title-box">
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <h1 style={{ margin: 0 }}>Inventario Escolar — I.E. José Abelardo Quiñones</h1>
+              <h1 style={{ margin: 0, fontFamily: "'Outfit', sans-serif", fontSize: '1.45rem', color: '#1e3a8a' }}>
+                Sistema de Control Patrimonial Escolar
+              </h1>
               <span style={{
                 backgroundColor: isDbConnected ? (dbSourceName.includes('MongoDB') ? '#022c22' : '#064e3b') : '#451a03',
-                color: isDbConnected ? (dbSourceName.includes('MongoDB') ? '#34d399' : '#34d399') : '#fbbf24',
+                color: isDbConnected ? (dbSourceName.includes('MongoDB') ? '#34d399' : '#a7f3d0') : '#fbbf24',
                 border: `1px solid ${isDbConnected ? (dbSourceName.includes('MongoDB') ? '#059669' : '#059669') : '#d97706'}`,
-                padding: '0.2rem 0.65rem',
-                borderRadius: '12px',
+                padding: '0.25rem 0.75rem',
+                borderRadius: '20px',
                 fontSize: '0.78rem',
                 fontWeight: '600',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.35rem'
+                gap: '0.4rem',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
               }}>
-                <span>{isDbConnected ? (dbSourceName.includes('MongoDB') ? `🍃 ${dbSourceName}` : `🐍 ${dbSourceName}`) : '🟡 Modo Local'}</span>
+                <span className="status-pulse-dot" style={{ backgroundColor: isDbConnected ? '#10b981' : '#f59e0b' }}></span>
+                <span>{isDbConnected ? (dbSourceName.includes('MongoDB') ? `🍃 MongoDB Cloud Atlas (Sincronizado)` : `🐍 ${dbSourceName}`) : '🟡 Modo Local'}</span>
               </span>
             </div>
-            <p>Módulo Institucional de Almacenamiento, Mobiliario y Equipamiento Tecnológico — Registro 2026</p>
+            <p style={{ color: '#475569', fontSize: '0.88rem', fontWeight: 500, marginTop: '2px' }}>
+              Institución Educativa José Abelardo Quiñones — Registro Patrimonial Institucional 2026
+            </p>
           </div>
         </div>
 
         <div className="header-actions">
           <button className="btn btn-primary" onClick={handleOpenAddModal}>
-            <span>+</span> Registrar Nuevo Bien
+            <span>+</span> Registrar Bien Patrimonial
           </button>
           <button className="btn btn-secondary" onClick={() => setIsLocationModalOpen(true)}>
             <span>🏫</span> + Nueva Ubicación
           </button>
+          <button className="btn btn-secondary" style={{ color: '#1e3a8a', borderColor: '#93c5fd', backgroundColor: '#eff6ff' }} onClick={() => setIsActaModalOpen(true)}>
+            <span>📜</span> Acta de Inventario
+          </button>
           <button className="btn btn-emerald" onClick={handleExportExcel}>
-            <span>📊</span> Exportar Excel (.xlsx)
+            <span>📊</span> Exportar Excel (.csv)
           </button>
         </div>
       </header>
@@ -461,11 +479,11 @@ export default function App() {
           <div className="kpi-grid">
             <div className="kpi-card">
               <div className="kpi-header">
-                <span className="kpi-title">TOTAL DE BIENES EN VISTA</span>
+                <span className="kpi-title">TOTAL DE BIENES PATRIMONIALES</span>
                 <div className="kpi-icon">📦</div>
               </div>
               <div className="kpi-value">{metrics.totalRecords} <span style={{ fontSize: '1.1rem', color: '#64748b', fontWeight: 500 }}>({metrics.totalQuantityUnits} unids)</span></div>
-              <div className="kpi-subtext">Registros catalogados en {selectedLocation}</div>
+              <div className="kpi-subtext">Bienes catalogados en {selectedLocation}</div>
             </div>
 
             <div className="kpi-card kpi-teal">
@@ -503,10 +521,17 @@ export default function App() {
             <div className="table-header-bar">
               <div className="table-title-row">
                 <h2>
-                  <span>Libro de Control de Inventario Escolar</span>
-                  <span className="table-badge-subtitle">Ubicación Actual: {selectedLocation}</span>
+                  <span>Registro Oficial de Bienes Escolares</span>
+                  <span className="table-badge-subtitle">Dependencia: {selectedLocation}</span>
                 </h2>
                 <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ color: '#1e3a8a', borderColor: '#93c5fd' }}
+                    onClick={() => setIsActaModalOpen(true)}
+                  >
+                    📜 Generar Acta Oficial
+                  </button>
                   <button
                     className="btn btn-amber btn-sm"
                     onClick={() => {
@@ -525,7 +550,7 @@ export default function App() {
                   <span className="search-icon">🔍</span>
                   <input
                     type="text"
-                    placeholder="Buscar por código, nombre de bien, marca, serie, aula..."
+                    placeholder="Buscar por código patrimonial, bien, marca, serie, aula..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -561,9 +586,9 @@ export default function App() {
                   onChange={(e) => setSelectedStatus(e.target.value)}
                 >
                   <option value="Todos">⚡ Todos los Estados</option>
-                  <option value="Bueno">✓ Bueno / Operativo</option>
-                  <option value="Regular">⚠️ Regular</option>
-                  <option value="Malo">✕ Malo / De Baja</option>
+                  <option value="Bueno">✓ Óptimo / Operativo</option>
+                  <option value="Regular">⚠️ Regular / Mantenimiento</option>
+                  <option value="Malo">✕ Malo / Propuesto de Baja</option>
                 </select>
               </div>
             </div>
@@ -573,10 +598,10 @@ export default function App() {
               <table className="inventory-table">
                 <thead>
                   <tr>
-                    <th>CÓDIGO</th>
+                    <th>CÓDIGO PATRIMONIAL</th>
                     <th>UBICACIÓN / AULA</th>
                     <th>CLASE / CATEGORÍA</th>
-                    <th>NOMBRE DEL BIEN</th>
+                    <th>DENOMINACIÓN DEL BIEN</th>
                     <th>MARCA / MODELO</th>
                     <th>ESPECIFICACIONES Y DETALLES</th>
                     <th style={{ textAlign: 'center' }}>CANT.</th>
@@ -605,7 +630,7 @@ export default function App() {
                         </td>
                         <td>
                           <div className="brand-text">{item.brand || 'MINEDU'}</div>
-                          <div className="item-details-sub">{item.model !== 'N/A' ? item.model : ''}</div>
+                          <div className="item-details-sub">{item.model && item.model !== 'N/A' ? item.model : ''}</div>
                         </td>
                         <td>
                           <div className="specs-text">{item.details}</div>
@@ -615,23 +640,15 @@ export default function App() {
                             </div>
                           )}
                           {item.customFields && Object.keys(item.customFields).length > 0 && (
-                            <div style={{
-                              marginTop: '6px',
-                              fontSize: '0.78rem',
-                              color: '#c084fc',
-                              backgroundColor: '#3b0764',
-                              border: '1px solid #7e22ce',
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              lineHeight: '1.4'
-                            }}>
-                              <strong style={{ color: '#e9d5ff' }}>📋 Cuestionario:</strong>{' '}
+                            <div className="custom-fields-wrapper">
                               {Object.entries(item.customFields)
-                                .filter(([_, val]) => val)
-                                .map(([key, val]) => `${key}: ${val}`)
+                                .filter(([, val]) => val)
                                 .slice(0, 3)
-                                .join(' | ')}
-                              {Object.entries(item.customFields).filter(([_, val]) => val).length > 3 && ' ...'}
+                                .map(([key, val], idx) => (
+                                  <span key={idx} className="custom-field-pill">
+                                    <strong>{key}:</strong> {val}
+                                  </span>
+                                ))}
                             </div>
                           )}
                         </td>
@@ -849,6 +866,118 @@ export default function App() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setIsLocationModalOpen(false)}>
                 Listo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: ACTA OFICIAL DE INVENTARIO Y CONTROL PATRIMONIAL */}
+      {isActaModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsActaModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '900px', width: '95%' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📜 Acta Oficial de Control Patrimonial Escolar</h3>
+              <button className="close-btn" onClick={() => setIsActaModalOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body printable-area-wrapper">
+              <div className="official-acta-container">
+                <div className="official-acta-header">
+                  <h2>REPÚBLICA DEL PERÚ — MINISTERIO DE EDUCACIÓN</h2>
+                  <h1>ACTA OFICIAL DE CONTROL Y VERIFICACIÓN PATRIMONIAL</h1>
+                  <p>Institución Educativa Emblemática "José Abelardo Quiñones" — Año Lectivo 2026</p>
+                </div>
+
+                <div className="acta-meta-grid">
+                  <div className="acta-meta-item">
+                    <span>INSTITUCIÓN EDUCATIVA</span>
+                    <strong>I.E. José Abelardo Quiñones</strong>
+                  </div>
+                  <div className="acta-meta-item">
+                    <span>DEPENDENCIA / UBICACIÓN</span>
+                    <strong>{selectedLocation}</strong>
+                  </div>
+                  <div className="acta-meta-item">
+                    <span>CANTIDAD DE BIENES</span>
+                    <strong>{filteredItems.length} registros ({metrics.totalQuantityUnits} unidades)</strong>
+                  </div>
+                  <div className="acta-meta-item">
+                    <span>BASE DE DATOS PATRIMONIAL</span>
+                    <strong>{dbSourceName}</strong>
+                  </div>
+                  <div className="acta-meta-item">
+                    <span>FECHA DE EMISIÓN</span>
+                    <strong>{new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })}</strong>
+                  </div>
+                </div>
+
+                <table className="acta-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '15%' }}>CÓDIGO SBN / QUI</th>
+                      <th style={{ width: '25%' }}>DENOMINACIÓN DEL BIEN</th>
+                      <th style={{ width: '15%' }}>UBICACIÓN</th>
+                      <th style={{ width: '15%' }}>MARCA / SERIE</th>
+                      <th style={{ width: '10%', textAlign: 'center' }}>CANT.</th>
+                      <th style={{ width: '20%' }}>ESTADO / OBSERVACIONES</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.map((item, idx) => (
+                      <tr key={item.id || idx}>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.code}</td>
+                        <td>
+                          <strong>{item.name}</strong>
+                          <br />
+                          <small style={{ color: '#475569' }}>{item.category}</small>
+                        </td>
+                        <td>{item.location}</td>
+                        <td>
+                          {item.brand || 'MINEDU'}
+                          {item.serialNumber && item.serialNumber !== 'N/A' && <><br /><small>SN: {item.serialNumber}</small></>}
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 700 }}>{item.quantity}</td>
+                        <td>
+                          <span style={{ fontWeight: 600, color: item.status === 'Bueno' ? '#15803d' : item.status === 'Regular' ? '#b45309' : '#b91c1c' }}>
+                            {item.status}
+                          </span>
+                          {item.details && <><br /><small>{item.details}</small></>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="acta-signatures-grid">
+                  <div className="signature-box">
+                    <div className="signature-line"></div>
+                    <p>Firma y Sello del Director(a)</p>
+                    <span>Comisión de Gestión Recursos Institucionales</span>
+                  </div>
+                  <div className="signature-box">
+                    <div className="signature-line"></div>
+                    <p>Responsable de Control Patrimonial</p>
+                    <span>Unidad Administrativa Escolar</span>
+                  </div>
+                  <div className="signature-box">
+                    <div className="signature-line"></div>
+                    <p>Verificador / Auditor de Bienes</p>
+                    <span>Comité de Control Patrimonial 2026</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setIsActaModalOpen(false)}>
+                Cerrar
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  window.print();
+                }}
+              >
+                🖨️ Imprimir / Guardar PDF
               </button>
             </div>
           </div>

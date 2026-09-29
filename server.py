@@ -98,10 +98,31 @@ def init_sqlite_db():
             details TEXT,
             notes TEXT,
             custom_fields TEXT,
+            alto TEXT,
+            ancho TEXT,
+            largo TEXT,
+            tipo_material TEXT,
+            color TEXT,
+            situacion TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     ''')
+
+    # Migrate: add new columns if they don't exist (for existing databases)
+    new_columns = [
+        ('alto', 'TEXT'),
+        ('ancho', 'TEXT'),
+        ('largo', 'TEXT'),
+        ('tipo_material', 'TEXT'),
+        ('color', 'TEXT'),
+        ('situacion', 'TEXT'),
+    ]
+    existing_columns = [row[1] for row in cursor.execute('PRAGMA table_info(inventario)').fetchall()]
+    for col_name, col_type in new_columns:
+        if col_name not in existing_columns:
+            cursor.execute(f'ALTER TABLE inventario ADD COLUMN {col_name} {col_type}')
+            print(f'[+] Columna "{col_name}" agregada a la tabla inventario.')
 
     # 2. Create cuestionarios_categoria table
     cursor.execute('''
@@ -227,6 +248,12 @@ def format_row(row):
         'status': row['status'] or 'Bueno',
         'details': row['details'] or '',
         'notes': row['notes'] or '',
+        'alto': row['alto'] or '',
+        'ancho': row['ancho'] or '',
+        'largo': row['largo'] or '',
+        'tipoMaterial': row['tipo_material'] or '',
+        'color': row['color'] or '',
+        'situacion': row['situacion'] or '',
         'customFields': custom_fields,
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at']
@@ -325,7 +352,7 @@ def get_item(item_id):
 
 @app.route('/api/inventory', methods=['POST'])
 def create_item():
-    data = request.get_json() or {}
+    data = request.get_json(force=True, silent=True) or {}
     name = data.get('name')
     category = data.get('category')
     location = data.get('location')
@@ -347,13 +374,15 @@ def create_item():
     # 1. Guardar en SQLite
     try:
         conn.execute('''
-            INSERT OR REPLACE INTO inventario (id, code, name, category, location, brand, model, serial_number, quantity, status, details, notes, custom_fields)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO inventario (id, code, name, category, location, brand, model, serial_number, quantity, status, details, notes, custom_fields, alto, ancho, largo, tipo_material, color, situacion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             item_id, code, name, category, location,
             data.get('brand', ''), data.get('model', ''), data.get('serialNumber', ''),
             int(data.get('quantity', 1)), data.get('status', 'Bueno'),
-            data.get('details', ''), data.get('notes', ''), custom_fields_json
+            data.get('details', ''), data.get('notes', ''), custom_fields_json,
+            data.get('alto', ''), data.get('ancho', ''), data.get('largo', ''),
+            data.get('tipoMaterial', ''), data.get('color', ''), data.get('situacion', '')
         ))
         conn.commit()
     except Exception as err_sql:
@@ -374,6 +403,12 @@ def create_item():
         'status': data.get('status', 'Bueno'),
         'details': data.get('details', ''),
         'notes': data.get('notes', ''),
+        'alto': data.get('alto', ''),
+        'ancho': data.get('ancho', ''),
+        'largo': data.get('largo', ''),
+        'tipoMaterial': data.get('tipoMaterial', ''),
+        'color': data.get('color', ''),
+        'situacion': data.get('situacion', ''),
         'customFields': custom_fields
     }
 
@@ -389,7 +424,7 @@ def create_item():
 
 @app.route('/api/inventory/<item_id>', methods=['PUT'])
 def update_item(item_id):
-    data = request.get_json() or {}
+    data = request.get_json(force=True, silent=True) or {}
     
     # 1. Guardar en SQLite
     conn = get_db_connection()
@@ -405,6 +440,12 @@ def update_item(item_id):
     status = data.get('status', existing['status'] if existing else 'Bueno')
     details = data.get('details', existing['details'] if existing else '')
     notes = data.get('notes', existing['notes'] if existing else '')
+    alto = data.get('alto', existing['alto'] if existing else '')
+    ancho = data.get('ancho', existing['ancho'] if existing else '')
+    largo = data.get('largo', existing['largo'] if existing else '')
+    tipo_material = data.get('tipoMaterial', existing['tipo_material'] if existing else '')
+    color = data.get('color', existing['color'] if existing else '')
+    situacion = data.get('situacion', existing['situacion'] if existing else '')
 
     custom_fields = data.get('customFields')
     if custom_fields is None and existing:
@@ -417,9 +458,12 @@ def update_item(item_id):
         conn.execute('''
             UPDATE inventario
             SET name = ?, category = ?, location = ?, brand = ?, model = ?, serial_number = ?,
-                quantity = ?, status = ?, details = ?, notes = ?, custom_fields = ?, updated_at = CURRENT_TIMESTAMP
+                quantity = ?, status = ?, details = ?, notes = ?, custom_fields = ?,
+                alto = ?, ancho = ?, largo = ?, tipo_material = ?, color = ?, situacion = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (name, category, location, brand, model, serial_number, quantity, status, details, notes, json.dumps(custom_fields or {}), item_id))
+        ''', (name, category, location, brand, model, serial_number, quantity, status, details, notes,
+              json.dumps(custom_fields or {}), alto, ancho, largo, tipo_material, color, situacion, item_id))
         conn.commit()
     conn.close()
 
@@ -436,6 +480,12 @@ def update_item(item_id):
         'status': status,
         'details': details,
         'notes': notes,
+        'alto': alto,
+        'ancho': ancho,
+        'largo': largo,
+        'tipoMaterial': tipo_material,
+        'color': color,
+        'situacion': situacion,
         'customFields': custom_fields or {}
     }
 
@@ -466,6 +516,27 @@ def delete_item(item_id):
 
 @app.route('/api/categories/questionnaires', methods=['GET'])
 def get_questionnaires():
+    if is_mongo_connected and mongo_db is not None:
+        try:
+            docs = list(mongo_db['cuestionarios_categoria'].find({}, {'_id': 0}))
+            if docs:
+                res = {}
+                for doc in docs:
+                    fields = doc.get('fields', [])
+                    if isinstance(fields, str):
+                        try:
+                            fields = json.loads(fields)
+                        except Exception:
+                            fields = []
+                    res[doc['category']] = {
+                        'title': doc.get('title', ''),
+                        'icon': doc.get('icon', '📑'),
+                        'fields': fields
+                    }
+                return jsonify({'success': True, 'source': mongo_source_name, 'data': res})
+        except Exception as e:
+            print(f"[!] Error leyendo cuestionarios de Mongo: {e}")
+
     conn = get_db_connection()
     rows = conn.execute('SELECT * FROM cuestionarios_categoria').fetchall()
     conn.close()
@@ -480,7 +551,7 @@ def get_questionnaires():
             'icon': r['icon'],
             'fields': fields
         }
-    return jsonify({'success': True, 'data': res})
+    return jsonify({'success': True, 'source': 'SQLite Local', 'data': res})
 
 @app.route('/api/locations', methods=['GET'])
 def get_locations():

@@ -1,32 +1,42 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
+import { createClient } from '@libsql/client';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const tursoUrl = process.env.TURSO_DATABASE_URL || process.env.TURSO_URL;
+const tursoAuthToken = process.env.TURSO_AUTH_TOKEN || process.env.TURSO_TOKEN;
+const forceDbMode = (process.env.DB_MODE || process.env.DATABASE_MODE || '').toLowerCase();
+const useTurso = forceDbMode === 'turso' || (!forceDbMode || forceDbMode === 'auto') && Boolean(tursoUrl) && Boolean(tursoAuthToken);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// SQLite Database Connection
-const dbPath = path.join(__dirname, 'db', 'inventario.db');
-if (!fs.existsSync(dbPath)) {
-  console.log('Base de datos no encontrada. Inicializando base de datos...');
-  await import('./db/initDb.js');
+function normalizeTursoRows(resultSet) {
+  if (!resultSet || !Array.isArray(resultSet.rows)) {
+    return [];
+  }
+
+  const columns = resultSet.columns || [];
+  return resultSet.rows.map((row) => {
+    const obj = {};
+    columns.forEach((column, index) => {
+      obj[column] = row[index];
+    });
+    return obj;
+  });
 }
 
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
-
-// Helper functions for parsing JSON stored fields
-function formatItemRow(row) {
+function normalizePayloadRow(row) {
   if (!row) return null;
   let customFieldsParsed = {};
   try {
@@ -36,6 +46,7 @@ function formatItemRow(row) {
   } catch (e) {
     customFieldsParsed = {};
   }
+
   return {
     id: row.id,
     code: row.code,
@@ -55,35 +66,172 @@ function formatItemRow(row) {
   };
 }
 
+let db;
+let sourceName = 'SQLite Local';
+
+async function ensureSqliteDatabase() {
+  const dbPath = path.join(__dirname, 'db', 'inventario.db');
+  if (!fs.existsSync(dbPath)) {
+    console.log('Base de datos no encontrada. Inicializando base de datos...');
+    await import('./db/initDb.js');
+  }
+
+  const sqliteDb = new Database(dbPath);
+  sqliteDb.pragma('journal_mode = WAL');
+  db = sqliteDb;
+  sourceName = 'SQLite Local';
+  console.log(`✅ Conectado a SQLite local: ${dbPath}`);
+}
+
+async function ensureTursoDatabase() {
+  if (!tursoUrl || !tursoAuthToken) {
+    throw new Error('Faltan TURSO_DATABASE_URL o TURSO_AUTH_TOKEN. Define ambas variables para usar Turso.');
+  }
+
+  const tursoDb = createClient({ url: tursoUrl, authToken: tursoAuthToken });
+  await tursoDb.execute('SELECT 1');
+  db = tursoDb;
+  sourceName = 'Turso DB';
+  console.log(`✅ Conectado a Turso: ${tursoUrl}`);
+}
+
+async function ensureDatabaseSchema() {
+  if (useTurso) {
+    await ensureTursoDatabase();
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS inventario (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        location TEXT NOT NULL,
+        brand TEXT,
+        model TEXT,
+        serial_number TEXT,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'Bueno',
+        details TEXT,
+        notes TEXT,
+        custom_fields TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS cuestionarios_categoria (
+        category TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        icon TEXT,
+        fields TEXT NOT NULL
+      )
+    `);
+
+    const defaultQuestionnaires = [
+      {
+        category: 'Equipos Tecnológicos',
+        title: 'Cuestionario Tecnológico',
+        icon: '💻',
+        fields: JSON.stringify([
+          { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+          { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false }
+        ])
+      },
+      {
+        category: 'Mobiliario Escolar',
+        title: 'Cuestionario de Mobiliario',
+        icon: '🪑',
+        fields: JSON.stringify([
+          { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+          { key: 'material', label: 'Material de Fabricación', type: 'select', options: ['Madera Prensada y Metal', 'Melamina con Marco de Fierro', 'Plástico Inyectado Reforzado', 'Madera Maciza (Cedro/Tornillo)', 'Aluminio y Vidrio'], required: true }
+        ])
+      }
+    ];
+
+    for (const row of defaultQuestionnaires) {
+      await db.execute({
+        sql: `INSERT OR REPLACE INTO cuestionarios_categoria (category, title, icon, fields) VALUES (?, ?, ?, ?)`,
+        args: [row.category, row.title, row.icon, row.fields]
+      });
+    }
+
+    return;
+  }
+
+  await ensureSqliteDatabase();
+}
+
+async function getInventoryRows() {
+  if (useTurso) {
+    const result = await db.execute('SELECT * FROM inventario ORDER BY rowid DESC');
+    return normalizeTursoRows(result);
+  }
+
+  return db.prepare('SELECT * FROM inventario ORDER BY rowid DESC').all();
+}
+
+async function getInventoryById(id) {
+  if (useTurso) {
+    const result = await db.execute({ sql: 'SELECT * FROM inventario WHERE id = ?', args: [id] });
+    const rows = normalizeTursoRows(result);
+    return rows[0] || null;
+  }
+
+  return db.prepare('SELECT * FROM inventario WHERE id = ?').get(id);
+}
+
+async function getQuestionnaireRows() {
+  if (useTurso) {
+    const result = await db.execute('SELECT * FROM cuestionarios_categoria');
+    return normalizeTursoRows(result);
+  }
+
+  return db.prepare('SELECT * FROM cuestionarios_categoria').all();
+}
+
+async function countInventory() {
+  if (useTurso) {
+    const result = await db.execute('SELECT COUNT(*) as cnt FROM inventario');
+    const rows = normalizeTursoRows(result);
+    return Number(rows[0]?.cnt || 0);
+  }
+
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM inventario').get();
+  return Number(row.cnt || 0);
+}
+
+function withSource(payload) {
+  return { ...payload, source: sourceName };
+}
+
+await ensureDatabaseSchema();
+
 // ==================== ROUTES ==================== //
 
-// 1. GET /api/inventory - Get all inventory items
-app.get('/api/inventory', (req, res) => {
+app.get('/api/inventory', async (req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM inventario ORDER BY rowid DESC').all();
-    const formatted = rows.map(formatItemRow);
-    res.json({ success: true, count: formatted.length, data: formatted });
+    const rows = await getInventoryRows();
+    const formatted = rows.map(normalizePayloadRow);
+    res.json(withSource({ success: true, count: formatted.length, data: formatted }));
   } catch (error) {
     console.error('Error al consultar inventario:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// 2. GET /api/inventory/:id - Get a single item
-app.get('/api/inventory/:id', (req, res) => {
+app.get('/api/inventory/:id', async (req, res) => {
   try {
-    const row = db.prepare('SELECT * FROM inventario WHERE id = ?').get(req.params.id);
+    const row = await getInventoryById(req.params.id);
     if (!row) {
-      return res.status(404).json({ success: false, error: 'Elemento no encontrado' });
+      return res.status(404).json(withSource({ success: false, error: 'Elemento no encontrado' }));
     }
-    res.json({ success: true, data: formatItemRow(row) });
+    res.json(withSource({ success: true, data: normalizePayloadRow(row) }));
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// 3. POST /api/inventory - Create a new item with category questionnaire responses
-app.post('/api/inventory', (req, res) => {
+app.post('/api/inventory', async (req, res) => {
   try {
     const {
       code,
@@ -101,46 +249,50 @@ app.post('/api/inventory', (req, res) => {
     } = req.body;
 
     if (!name || !category || !location) {
-      return res.status(400).json({
+      return res.status(400).json(withSource({
         success: false,
         error: 'Campos requeridos faltantes: nombre, categoría y ubicación son obligatorios.'
-      });
+      }));
     }
 
-    // Auto generate code if empty
     let itemCode = code ? code.trim() : '';
     if (!itemCode) {
       const catPrefix = category.slice(0, 3).toUpperCase().replace(/[^A-Z]/g, 'CAT');
-      const countRow = db.prepare('SELECT COUNT(*) as cnt FROM inventario').get();
-      const num = (countRow.cnt + 1).toString().padStart(3, '0');
+      const count = await countInventory();
+      const num = (count + 1).toString().padStart(3, '0');
       itemCode = `QUI-${catPrefix}-${num}`;
     }
 
     const id = itemCode;
     const customFieldsJson = JSON.stringify(customFields || {});
 
-    const stmt = db.prepare(`
-      INSERT INTO inventario (id, code, name, category, location, brand, model, serial_number, quantity, status, details, notes, custom_fields)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    if (useTurso) {
+      await db.execute({
+        sql: `INSERT INTO inventario (id, code, name, category, location, brand, model, serial_number, quantity, status, details, notes, custom_fields)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, itemCode, name, category, location, brand, model, serialNumber, quantity, status, details, notes, customFieldsJson]
+      });
+    } else {
+      db.prepare(`
+        INSERT INTO inventario (id, code, name, category, location, brand, model, serial_number, quantity, status, details, notes, custom_fields)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, itemCode, name, category, location, brand, model, serialNumber, quantity, status, details, notes, customFieldsJson);
+    }
 
-    stmt.run(id, itemCode, name, category, location, brand, model, serialNumber, quantity, status, details, notes, customFieldsJson);
-
-    const inserted = db.prepare('SELECT * FROM inventario WHERE id = ?').get(id);
-    res.status(201).json({ success: true, message: 'Ítem agregado a SQLite con éxito', data: formatItemRow(inserted) });
+    const inserted = await getInventoryById(id);
+    res.status(201).json(withSource({ success: true, message: `Ítem agregado a ${sourceName} con éxito`, data: normalizePayloadRow(inserted) }));
   } catch (error) {
     console.error('Error al insertar ítem:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// 4. PUT /api/inventory/:id - Update item
-app.put('/api/inventory/:id', (req, res) => {
+app.put('/api/inventory/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const existing = db.prepare('SELECT * FROM inventario WHERE id = ?').get(id);
+    const existing = await getInventoryById(id);
     if (!existing) {
-      return res.status(404).json({ success: false, error: 'Ítem no encontrado en base de datos' });
+      return res.status(404).json(withSource({ success: false, error: 'Ítem no encontrado en base de datos' }));
     }
 
     const {
@@ -162,81 +314,121 @@ app.put('/api/inventory/:id', (req, res) => {
       updatedCustomFieldsJson = JSON.stringify(customFields);
     }
 
-    const stmt = db.prepare(`
-      UPDATE inventario
-      SET name = ?, category = ?, location = ?, brand = ?, model = ?, serial_number = ?,
-          quantity = ?, status = ?, details = ?, notes = ?, custom_fields = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
+    if (useTurso) {
+      await db.execute({
+        sql: `UPDATE inventario
+              SET name = ?, category = ?, location = ?, brand = ?, model = ?, serial_number = ?,
+                  quantity = ?, status = ?, details = ?, notes = ?, custom_fields = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?`,
+        args: [name, category, location, brand, model, serialNumber, quantity, status, details, notes, updatedCustomFieldsJson, id]
+      });
+    } else {
+      db.prepare(`
+        UPDATE inventario
+        SET name = ?, category = ?, location = ?, brand = ?, model = ?, serial_number = ?,
+            quantity = ?, status = ?, details = ?, notes = ?, custom_fields = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(name, category, location, brand, model, serialNumber, quantity, status, details, notes, updatedCustomFieldsJson, id);
+    }
 
-    stmt.run(name, category, location, brand, model, serialNumber, quantity, status, details, notes, updatedCustomFieldsJson, id);
-
-    const updatedRow = db.prepare('SELECT * FROM inventario WHERE id = ?').get(id);
-    res.json({ success: true, message: 'Ítem actualizado exitosamente', data: formatItemRow(updatedRow) });
+    const updatedRow = await getInventoryById(id);
+    res.json(withSource({ success: true, message: 'Ítem actualizado exitosamente', data: normalizePayloadRow(updatedRow) }));
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// 5. DELETE /api/inventory/:id - Delete item
-app.delete('/api/inventory/:id', (req, res) => {
+app.delete('/api/inventory/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const info = db.prepare('DELETE FROM inventario WHERE id = ?').run(id);
-    if (info.changes === 0) {
-      return res.status(404).json({ success: false, error: 'Ítem no encontrado' });
+
+    if (useTurso) {
+      const result = await db.execute({ sql: 'DELETE FROM inventario WHERE id = ?', args: [id] });
+      if (result.rowsAffected === 0) {
+        return res.status(404).json(withSource({ success: false, error: 'Ítem no encontrado' }));
+      }
+    } else {
+      const info = db.prepare('DELETE FROM inventario WHERE id = ?').run(id);
+      if (info.changes === 0) {
+        return res.status(404).json(withSource({ success: false, error: 'Ítem no encontrado' }));
+      }
     }
-    res.json({ success: true, message: `Ítem ${id} eliminado de la base de datos` });
+
+    res.json(withSource({ success: true, message: `Ítem ${id} eliminado de la base de datos` }));
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// 6. GET /api/categories/questionnaires - Get question schemas for all or a category
-app.get('/api/categories/questionnaires', (req, res) => {
+app.get('/api/categories/questionnaires', async (req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM cuestionarios_categoria').all();
+    const rows = await getQuestionnaireRows();
     const questionnairesMap = {};
-    rows.forEach(r => {
+    rows.forEach((r) => {
       let fieldsParsed = [];
-      try { fieldsParsed = JSON.parse(r.fields); } catch (e) { fieldsParsed = []; }
+      try {
+        fieldsParsed = JSON.parse(r.fields);
+      } catch (e) {
+        fieldsParsed = [];
+      }
       questionnairesMap[r.category] = {
         title: r.title,
         icon: r.icon,
         fields: fieldsParsed
       };
     });
-    res.json({ success: true, data: questionnairesMap });
+    res.json(withSource({ success: true, data: questionnairesMap }));
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// 7. GET /api/stats - Statistics dashboard
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
-    const totalItems = db.prepare('SELECT SUM(quantity) as totalQty, COUNT(*) as totalUnique FROM inventario').get();
-    const byCategory = db.prepare('SELECT category, SUM(quantity) as count FROM inventario GROUP BY category').all();
-    const byStatus = db.prepare('SELECT status, COUNT(*) as count FROM inventario GROUP BY status').all();
-    const byLocation = db.prepare('SELECT location, COUNT(*) as count FROM inventario GROUP BY location').all();
+    let totalItems;
+    let byCategory;
+    let byStatus;
+    let byLocation;
 
-    res.json({
+    if (useTurso) {
+      totalItems = normalizeTursoRows(await db.execute('SELECT SUM(quantity) as totalQty, COUNT(*) as totalUnique FROM inventario'))[0] || { totalQty: 0, totalUnique: 0 };
+      byCategory = normalizeTursoRows(await db.execute('SELECT category, SUM(quantity) as count FROM inventario GROUP BY category'));
+      byStatus = normalizeTursoRows(await db.execute('SELECT status, COUNT(*) as count FROM inventario GROUP BY status'));
+      byLocation = normalizeTursoRows(await db.execute('SELECT location, COUNT(*) as count FROM inventario GROUP BY location'));
+    } else {
+      totalItems = db.prepare('SELECT SUM(quantity) as totalQty, COUNT(*) as totalUnique FROM inventario').get();
+      byCategory = db.prepare('SELECT category, SUM(quantity) as count FROM inventario GROUP BY category').all();
+      byStatus = db.prepare('SELECT status, COUNT(*) as count FROM inventario GROUP BY status').all();
+      byLocation = db.prepare('SELECT location, COUNT(*) as count FROM inventario GROUP BY location').all();
+    }
+
+    res.json(withSource({
       success: true,
       stats: {
-        totalQuantity: totalItems.totalQty || 0,
-        totalUniqueItems: totalItems.totalUnique || 0,
+        totalQuantity: Number(totalItems.totalQty || 0),
+        totalUniqueItems: Number(totalItems.totalUnique || 0),
         byCategory,
         byStatus,
         byLocation
       }
-    });
+    }));
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json(withSource({ success: false, error: error.message }));
   }
 });
 
-// Start Server
+app.get('/api/db-status', (req, res) => {
+  res.json(withSource({
+    success: true,
+    mode: useTurso ? 'turso' : 'sqlite',
+    source: sourceName
+  }));
+});
+
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor Node.js con SQLite activo en: http://localhost:${PORT}`);
-  console.log(`📁 Base de Datos vinculada: ${dbPath}`);
+  console.log(`🚀 Servidor Node.js activo en: http://localhost:${PORT}`);
+  console.log(`📁 Modo de base de datos: ${useTurso ? 'Turso' : 'SQLite Local'}`);
+  if (useTurso) {
+    console.log(`🔐 Conexión: ${tursoUrl}`);
+  }
 });

@@ -58,6 +58,8 @@ const defaultQuestionnaires = [
     title: 'Cuestionario Tecnológico',
     icon: '💻',
     fields: JSON.stringify([
+      { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+      { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false },
       { key: 'voltage', label: 'Voltaje / Alimentación', type: 'select', options: ['220V AC', '110V AC', 'Batería Recargable', 'USB 5V / Type-C', 'PoE (Power over Ethernet)'], required: false },
       { key: 'ports', label: 'Puertos / Conectividad', type: 'text', placeholder: 'Ej. HDMI, VGA, Wi-Fi 6, Ethernet RJ45, Bluetooth 5.0', required: false },
       { key: 'macAddress', label: 'Dirección MAC / IP', type: 'text', placeholder: 'Ej. AA:BB:CC:DD:EE:FF / 192.168.1.50', required: false },
@@ -71,6 +73,8 @@ const defaultQuestionnaires = [
     title: 'Cuestionario de Mobiliario',
     icon: '🪑',
     fields: JSON.stringify([
+      { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+      { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false },
       { key: 'material', label: 'Material de Fabricación', type: 'select', options: ['Madera Prensada y Metal', 'Melamina con Marco de Fierro', 'Plástico Inyectado Reforzado', 'Madera Maciza (Cedro/Tornillo)', 'Aluminio y Vidrio'], required: true },
       { key: 'dimensions', label: 'Dimensiones (Alto x Ancho x Prof.)', type: 'text', placeholder: 'Ej. 120cm x 50cm x 75cm', required: false },
       { key: 'capacity', label: 'Capacidad de Personas', type: 'select', options: ['Unipersonal (1 estudiante)', 'Bipersonal (2 estudiantes)', 'Mesa Grupal (4-6 estudiantes)', 'Uso Docente / Administrativo'], required: false },
@@ -83,6 +87,8 @@ const defaultQuestionnaires = [
     title: 'Cuestionario de Material Didáctico',
     icon: '📚',
     fields: JSON.stringify([
+      { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+      { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false },
       { key: 'publisherOrAuthor', label: 'Editorial / Autor', type: 'text', placeholder: 'Ej. Santillana, MINEDU, Ediciones Corefo', required: false },
       { key: 'isbnCode', label: 'Código ISBN / Depósito Legal', type: 'text', placeholder: 'Ej. 978-612-345-678-9 / Lote MINEDU 2024', required: false },
       { key: 'educationalLevel', label: 'Nivel Educativo Target', type: 'select', options: ['Educación Inicial', 'Educación Primaria', 'Educación Secundaria', 'Docentes / Biblioteca central'], required: true },
@@ -95,6 +101,8 @@ const defaultQuestionnaires = [
     title: 'Cuestionario de Climatización y Sonido',
     icon: '❄️',
     fields: JSON.stringify([
+      { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+      { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false },
       { key: 'powerRating', label: 'Potencia (Watts / Lumens / BTU)', type: 'text', placeholder: 'Ej. 150W, 12000 BTU, 3800 Lumens', required: false },
       { key: 'installationType', label: 'Tipo de Instalación', type: 'select', options: ['Fijado en Techo', 'Mural / Colgado en Pared', 'Portátil / Móvil con Ruedas', 'Sobremesa / Consola'], required: false },
       { key: 'hasRemote', label: 'Control Remoto / Interruptor', type: 'select', options: ['Incluye Control Remoto Inalámbrico', 'Selector de Pared Fijo', 'Sin control remoto'], required: false },
@@ -106,6 +114,8 @@ const defaultQuestionnaires = [
     title: 'Cuestionario de Herramientas',
     icon: '🛠️',
     fields: JSON.stringify([
+      { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+      { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false },
       { key: 'toolCategory', label: 'Tipo de Herramienta', type: 'select', options: ['Manual (Alicate, Llave, Martillo)', 'Eléctrica con Cable 220V', 'Inalámbrica a Batería', 'Medición y Calibración', 'Corte y Jardinería'], required: true },
       { key: 'voltagePower', label: 'Especificación Técnica / Potencia', type: 'text', placeholder: 'Ej. 750W / 18V Litio / 1/2 pulgada', required: false },
       { key: 'includesCase', label: 'Maletín / Caja de Almacenamiento', type: 'select', options: ['Sí, incluye maletín original', 'No, guardado en estante común'], required: false },
@@ -117,6 +127,8 @@ const defaultQuestionnaires = [
     title: 'Cuestionario de Consumibles y Stock',
     icon: '📦',
     fields: JSON.stringify([
+      { key: 'tipo', label: 'Tipo (Material)', type: 'select', options: ['Plástico', 'Metal / Acero', 'Aluminio', 'Madera', 'Lata', 'Vidrio', 'Tela / Textil', 'Caucho / Goma', 'Cerámica', 'Otro'], required: false },
+      { key: 'dimensiones', label: 'Dimensiones (Alto x Largo x Ancho)', type: 'text', placeholder: 'Ej. 30cm x 20cm x 10cm', required: false },
       { key: 'expirationDate', label: 'Fecha de Vencimiento / Caducidad', type: 'date', required: false },
       { key: 'lotNumber', label: 'Número de Lote de Fabricación', type: 'text', placeholder: 'Ej. LOT-202408-B', required: false },
       { key: 'minStock', label: 'Punto de Reorden (Stock Mínimo Alerta)', type: 'number', placeholder: 'Ej. 5', required: false },

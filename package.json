@@ -5,14 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5174 --strictPort",
-    "server": "python server.py",
+    "server": "node server.js",
+    "server:python": "python server.py",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
+    "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.8",

@@ -120,6 +120,12 @@ export default function DynamicQuestionnaireModal({ isOpen, onClose, onSave, ite
     status: 'Bueno',
     details: '',
     notes: '',
+    alto: '',
+    ancho: '',
+    largo: '',
+    tipoMaterial: '',
+    color: '',
+    situacion: '',
     customFields: {}
   });
 
@@ -141,6 +147,12 @@ export default function DynamicQuestionnaireModal({ isOpen, onClose, onSave, ite
         status: itemToEdit.status || 'Bueno',
         details: itemToEdit.details || '',
         notes: itemToEdit.notes || '',
+        alto: itemToEdit.alto || '',
+        ancho: itemToEdit.ancho || '',
+        largo: itemToEdit.largo || '',
+        tipoMaterial: itemToEdit.tipoMaterial || '',
+        color: itemToEdit.color || '',
+        situacion: itemToEdit.situacion || '',
         customFields: itemToEdit.customFields || itemToEdit.custom_fields || {}
       });
     } else {
@@ -156,6 +168,12 @@ export default function DynamicQuestionnaireModal({ isOpen, onClose, onSave, ite
         status: 'Bueno',
         details: '',
         notes: '',
+        alto: '',
+        ancho: '',
+        largo: '',
+        tipoMaterial: '',
+        color: '',
+        situacion: '',
         customFields: {}
       });
     }
@@ -520,6 +538,171 @@ export default function DynamicQuestionnaireModal({ isOpen, onClose, onSave, ite
                       fontSize: '0.9rem'
                     }}
                   />
+                </div>
+              </div>
+
+              {/* ── DIMENSIONES ── */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                  📐 Dimensiones del Objeto
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '0.25rem' }}>Alto (cm)</label>
+                    <input
+                      type="number"
+                      name="alto"
+                      min="0"
+                      step="0.1"
+                      value={formData.alto}
+                      onChange={handleGeneralChange}
+                      placeholder="Ej. 75"
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem',
+                        borderRadius: '8px',
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #475569',
+                        color: '#f8fafc',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '0.25rem' }}>Ancho (cm)</label>
+                    <input
+                      type="number"
+                      name="ancho"
+                      min="0"
+                      step="0.1"
+                      value={formData.ancho}
+                      onChange={handleGeneralChange}
+                      placeholder="Ej. 50"
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem',
+                        borderRadius: '8px',
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #475569',
+                        color: '#f8fafc',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '0.25rem' }}>Largo (cm)</label>
+                    <input
+                      type="number"
+                      name="largo"
+                      min="0"
+                      step="0.1"
+                      value={formData.largo}
+                      onChange={handleGeneralChange}
+                      placeholder="Ej. 60"
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem',
+                        borderRadius: '8px',
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #475569',
+                        color: '#f8fafc',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── TIPO DE MATERIAL / COLOR / SITUACIÓN ── */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    🪵 Tipo de Material
+                  </label>
+                  <select
+                    name="tipoMaterial"
+                    value={formData.tipoMaterial}
+                    onChange={handleGeneralChange}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem',
+                      borderRadius: '8px',
+                      backgroundColor: '#0f172a',
+                      border: '1px solid #475569',
+                      color: formData.tipoMaterial ? '#f8fafc' : '#64748b',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    <option value="">-- Sin especificar --</option>
+                    <option value="Madera">🪵 Madera</option>
+                    <option value="Madera Prensada / MDF">🪵 Madera Prensada / MDF</option>
+                    <option value="Madera Maciza">🌳 Madera Maciza</option>
+                    <option value="Metal / Acero">🔩 Metal / Acero</option>
+                    <option value="Aluminio">⚙️ Aluminio</option>
+                    <option value="Lata / Hojalata">🥫 Lata / Hojalata</option>
+                    <option value="Plástico">🧴 Plástico</option>
+                    <option value="Plástico Reforzado">🛡️ Plástico Reforzado</option>
+                    <option value="Vidrio">🪟 Vidrio</option>
+                    <option value="Vidrio Templado">🪟 Vidrio Templado</option>
+                    <option value="Tela / Textil">🧵 Tela / Textil</option>
+                    <option value="Caucho / Goma">⚫ Caucho / Goma</option>
+                    <option value="Cerámica / Porcelana">🏺 Cerámica / Porcelana</option>
+                    <option value="Acero Inoxidable">✨ Acero Inoxidable</option>
+                    <option value="Fibra de Vidrio">🧪 Fibra de Vidrio</option>
+                    <option value="Mixto / Compuesto">🔀 Mixto / Compuesto</option>
+                    <option value="Otro">❓ Otro</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    🎨 Color
+                  </label>
+                  <input
+                    type="text"
+                    name="color"
+                    value={formData.color}
+                    onChange={handleGeneralChange}
+                    placeholder="Ej. Marrón, Azul, Gris..."
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem',
+                      borderRadius: '8px',
+                      backgroundColor: '#0f172a',
+                      border: '1px solid #475569',
+                      color: '#f8fafc',
+                      fontSize: '0.9rem'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    📍 Situación del Objeto
+                  </label>
+                  <select
+                    name="situacion"
+                    value={formData.situacion}
+                    onChange={handleGeneralChange}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem',
+                      borderRadius: '8px',
+                      backgroundColor: '#0f172a',
+                      border: '1px solid #475569',
+                      color: formData.situacion ? '#f8fafc' : '#64748b',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    <option value="">-- Sin especificar --</option>
+                    <option value="En uso activo">✅ En uso activo</option>
+                    <option value="En uso (préstamo temporal)">🔄 En uso (préstamo temporal)</option>
+                    <option value="Almacenado / En stock">📦 Almacenado / En stock</option>
+                    <option value="Almacenado (sin asignar)">🗄️ Almacenado (sin asignar)</option>
+                    <option value="En mantenimiento">🔧 En mantenimiento</option>
+                    <option value="Reservado">🔒 Reservado</option>
+                    <option value="De baja / Descartado">❌ De baja / Descartado</option>
+                  </select>
                 </div>
               </div>
 
